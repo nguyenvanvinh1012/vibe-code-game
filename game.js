@@ -5,6 +5,7 @@ const scoreEl = document.querySelector("#score");
 const waveEl = document.querySelector("#wave");
 const livesEl = document.querySelector("#lives");
 const chargeEl = document.querySelector("#charge");
+const sectorEl = document.querySelector("#sector");
 const overlay = document.querySelector("#overlay");
 const startButton = document.querySelector("#startButton");
 
@@ -19,6 +20,12 @@ let animationId = 0;
 const rand = (min, max) => Math.random() * (max - min) + min;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const sectors = [
+  { name: "Astra", top: "#060916", mid: "#091226", bottom: "#04060b", star: "#dbe9ff" },
+  { name: "Ember", top: "#17080c", mid: "#29101b", bottom: "#070509", star: "#ffd9c2" },
+  { name: "Verdant", top: "#06120e", mid: "#0b251e", bottom: "#040907", star: "#c9ffe8" },
+  { name: "Ion", top: "#10091a", mid: "#17204a", bottom: "#060711", star: "#eadbff" },
+];
 
 function createState() {
   return {
@@ -29,6 +36,18 @@ function createState() {
     wave: 1,
     lives: 3,
     charge: 0,
+    elapsed: 0,
+    sector: 0,
+    sectorFlash: 0,
+    notice: "",
+    noticeTimer: 0,
+    upgrades: {
+      shot: 1,
+      rapid: 1,
+      power: 1,
+      speed: 1,
+      shield: 0,
+    },
     stars: Array.from({ length: 140 }, () => ({
       x: rand(0, W),
       y: rand(0, H),
@@ -88,6 +107,8 @@ function loop(now) {
 }
 
 function update(dt) {
+  state.elapsed += dt;
+  updateSector(dt);
   updateStars(dt);
   updatePlayer(dt);
   updateBullets(dt);
@@ -98,6 +119,19 @@ function update(dt) {
   spawnEnemies(dt);
   detectCollisions();
   maybeAdvanceWave();
+}
+
+function updateSector(dt) {
+  const nextSector = Math.floor(state.elapsed / 60) % sectors.length;
+  if (nextSector !== state.sector) {
+    state.sector = nextSector;
+    state.sectorFlash = 2.5;
+    state.score += 500;
+    state.charge = clamp(state.charge + 35, 0, 100);
+    showNotice(`${sectors[state.sector].name} sector`);
+  }
+  state.sectorFlash = Math.max(0, state.sectorFlash - dt);
+  state.noticeTimer = Math.max(0, state.noticeTimer - dt);
 }
 
 function updateStars(dt) {
@@ -123,8 +157,9 @@ function updatePlayer(dt) {
   vx /= len;
   vy /= len;
 
-  p.x = clamp(p.x + vx * p.speed * dt, p.r + 8, W - p.r - 8);
-  p.y = clamp(p.y + vy * p.speed * dt, H * 0.38, H - p.r - 14);
+  const speed = p.speed + (state.upgrades.speed - 1) * 34;
+  p.x = clamp(p.x + vx * speed * dt, p.r + 8, W - p.r - 8);
+  p.y = clamp(p.y + vy * speed * dt, H * 0.38, H - p.r - 14);
   p.fireCooldown = Math.max(0, p.fireCooldown - dt);
   p.invulnerable = Math.max(0, p.invulnerable - dt);
   p.heat = Math.max(0, p.heat - dt * 0.42);
@@ -137,10 +172,32 @@ function updatePlayer(dt) {
 
 function firePlayerBullet() {
   const p = state.player;
-  const spread = p.heat > 0.55 ? 15 : 9;
-  state.bullets.push({ x: p.x - spread, y: p.y - 18, vx: -45, vy: -760, r: 4, damage: 1 });
-  state.bullets.push({ x: p.x + spread, y: p.y - 18, vx: 45, vy: -760, r: 4, damage: 1 });
-  p.fireCooldown = 0.13;
+  const spread = p.heat > 0.55 ? 17 : 10;
+  const damage = state.upgrades.power;
+  const shots = [
+    { x: -spread, vx: -45, vy: -760 },
+    { x: spread, vx: 45, vy: -760 },
+  ];
+
+  if (state.upgrades.shot >= 2) shots.push({ x: 0, vx: 0, vy: -790 });
+  if (state.upgrades.shot >= 3) {
+    shots.push({ x: -24, vx: -155, vy: -735 }, { x: 24, vx: 155, vy: -735 });
+  }
+  if (state.upgrades.shot >= 4) {
+    shots.push({ x: -8, vx: -78, vy: -820 }, { x: 8, vx: 78, vy: -820 });
+  }
+
+  for (const shot of shots) {
+    state.bullets.push({
+      x: p.x + shot.x,
+      y: p.y - 18,
+      vx: shot.vx,
+      vy: shot.vy,
+      r: 4,
+      damage,
+    });
+  }
+  p.fireCooldown = Math.max(0.055, 0.14 - (state.upgrades.rapid - 1) * 0.022);
   p.heat = clamp(p.heat + 0.08, 0, 1);
 }
 
@@ -150,6 +207,9 @@ function triggerNova() {
   for (const enemy of state.enemies) {
     enemy.hp -= enemy.boss ? 8 : 4;
     burst(enemy.x, enemy.y, enemy.boss ? "#ffca5f" : "#5ce7ff", enemy.boss ? 36 : 18);
+    if (enemy.hp <= 0) {
+      killEnemy(enemy);
+    }
   }
   state.enemyBullets = [];
   burst(state.player.x, state.player.y, "#54e0a7", 58);
@@ -220,11 +280,6 @@ function updateEnemies(dt) {
     }
   }
 
-  for (const enemy of state.enemies.filter((e) => e.y > H + 70)) {
-    damagePlayer();
-    enemy.hp = -999;
-  }
-
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 && enemy.y < H + 90);
 }
 
@@ -290,7 +345,7 @@ function detectCollisions() {
   }
 
   for (const enemy of state.enemies) {
-    if (p.invulnerable <= 0 && dist(p, enemy) < p.r + enemy.r * 0.78) {
+    if (p.invulnerable <= 0 && dist(p, enemy) < 10 + enemy.r * 0.5) {
       enemy.hp = 0;
       killEnemy(enemy, false);
       damagePlayer();
@@ -298,7 +353,7 @@ function detectCollisions() {
   }
 
   for (const bullet of state.enemyBullets) {
-    if (p.invulnerable <= 0 && dist(p, bullet) < p.r + bullet.r) {
+    if (p.invulnerable <= 0 && dist(p, bullet) < 10 + bullet.r) {
       bullet.y = H + 999;
       damagePlayer();
     }
@@ -318,15 +373,8 @@ function killEnemy(enemy, award = true) {
     state.score += enemy.points;
     state.waveKills += enemy.boss ? 4 : 1;
     state.charge = clamp(state.charge + (enemy.boss ? 34 : 10), 0, 100);
-    if (Math.random() < (enemy.boss ? 1 : 0.1)) {
-      state.powerups.push({
-        x: enemy.x,
-        y: enemy.y,
-        vy: 150,
-        r: 13,
-        spin: 0,
-        kind: Math.random() < 0.55 ? "life" : "charge",
-      });
+    if (Math.random() < (enemy.boss ? 1 : 0.28)) {
+      dropPowerup(enemy.x, enemy.y, enemy.boss);
     }
   }
   if (enemy.boss) {
@@ -341,6 +389,13 @@ function killEnemy(enemy, award = true) {
 function damagePlayer() {
   const p = state.player;
   if (p.invulnerable > 0) return;
+  if (state.upgrades.shield > 0) {
+    state.upgrades.shield -= 1;
+    p.invulnerable = 0.8;
+    burst(p.x, p.y, "#7df7ff", 38);
+    showNotice("Shield blocked hit");
+    return;
+  }
   state.lives -= 1;
   p.invulnerable = 1.5;
   state.charge = clamp(state.charge + 18, 0, 100);
@@ -353,12 +408,68 @@ function damagePlayer() {
 }
 
 function applyPowerup(kind) {
+  const upgrades = state.upgrades;
   if (kind === "life") {
     state.lives = Math.min(5, state.lives + 1);
-  } else {
-    state.charge = 100;
+    showNotice("Repair core +1 life");
   }
-  burst(state.player.x, state.player.y, kind === "life" ? "#54e0a7" : "#ffca5f", 28);
+  if (kind === "charge") {
+    state.charge = 100;
+    showNotice("Nova core charged");
+  }
+  if (kind === "shot") {
+    upgrades.shot = Math.min(4, upgrades.shot + 1);
+    showNotice(`V-shot level ${upgrades.shot}`);
+  }
+  if (kind === "rapid") {
+    upgrades.rapid = Math.min(4, upgrades.rapid + 1);
+    showNotice(`Rapid level ${upgrades.rapid}`);
+  }
+  if (kind === "power") {
+    upgrades.power = Math.min(3, upgrades.power + 1);
+    showNotice(`Damage level ${upgrades.power}`);
+  }
+  if (kind === "speed") {
+    upgrades.speed = Math.min(4, upgrades.speed + 1);
+    showNotice(`Engine level ${upgrades.speed}`);
+  }
+  if (kind === "shield") {
+    upgrades.shield = Math.min(3, upgrades.shield + 1);
+    showNotice(`Shield x${upgrades.shield}`);
+  }
+  burst(state.player.x, state.player.y, powerupColor(kind), 32);
+}
+
+function dropPowerup(x, y, bossDrop) {
+  const pool = bossDrop
+    ? ["shot", "rapid", "power", "shield", "life", "charge"]
+    : ["shot", "rapid", "power", "speed", "shield", "charge", "life"];
+  const kind = pool[Math.floor(rand(0, pool.length))];
+  state.powerups.push({
+    x,
+    y,
+    vy: 145,
+    r: 14,
+    spin: 0,
+    kind,
+  });
+}
+
+function powerupColor(kind) {
+  return {
+    life: "#54e0a7",
+    charge: "#ffca5f",
+    shot: "#7df7ff",
+    rapid: "#c78bff",
+    power: "#ff9e64",
+    speed: "#8cff6f",
+    shield: "#9dd8ff",
+  }[kind];
+}
+
+function showNotice(text) {
+  state.notice = text;
+  state.noticeTimer = 1.8;
 }
 
 function maybeAdvanceWave() {
@@ -404,22 +515,62 @@ function draw() {
   if (state.paused && !state.gameOver) {
     drawCenterText("Paused", "Press P to resume");
   }
+  if (state.noticeTimer > 0) {
+    ctx.globalAlpha = clamp(state.noticeTimer, 0, 1);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 28px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(state.notice, W / 2, 78);
+    ctx.globalAlpha = 1;
+  }
 }
 
 function drawBackground() {
+  const sector = sectors[state.sector];
   const gradient = ctx.createLinearGradient(0, 0, 0, H);
-  gradient.addColorStop(0, "#060916");
-  gradient.addColorStop(0.5, "#091226");
-  gradient.addColorStop(1, "#04060b");
+  gradient.addColorStop(0, sector.top);
+  gradient.addColorStop(0.5, sector.mid);
+  gradient.addColorStop(1, sector.bottom);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, H);
 
+  if (state.sector % 2 === 1) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+    const offset = (state.elapsed * 34) % 96;
+    for (let y = -80; y < H + 80; y += 96) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + offset);
+      ctx.lineTo(W, y + 46 + offset);
+      ctx.lineTo(W, y + 58 + offset);
+      ctx.lineTo(0, y + 12 + offset);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else {
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.045)";
+    ctx.lineWidth = 2;
+    const offset = (state.elapsed * 24) % 120;
+    for (let x = -120; x < W + 120; x += 120) {
+      ctx.beginPath();
+      ctx.moveTo(x + offset, 0);
+      ctx.lineTo(x - 180 + offset, H);
+      ctx.stroke();
+    }
+  }
+
   for (const star of state.stars) {
     ctx.globalAlpha = star.alpha;
-    ctx.fillStyle = "#dbe9ff";
+    ctx.fillStyle = sector.star;
     ctx.fillRect(star.x, star.y, star.size, star.size * 1.8);
   }
   ctx.globalAlpha = 1;
+
+  if (state.sectorFlash > 0) {
+    ctx.globalAlpha = clamp(state.sectorFlash / 2.5, 0, 0.3);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
 }
 
 function drawPlayer() {
@@ -451,6 +602,16 @@ function drawPlayer() {
   ctx.lineTo(8, 20);
   ctx.closePath();
   ctx.fill();
+
+  if (state.upgrades.shield > 0) {
+    ctx.strokeStyle = "#7df7ff";
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 }
 
@@ -501,11 +662,16 @@ function drawPowerups() {
     ctx.save();
     ctx.translate(power.x, power.y);
     ctx.rotate(power.spin);
-    ctx.strokeStyle = power.kind === "life" ? "#54e0a7" : "#ffca5f";
+    ctx.strokeStyle = powerupColor(power.kind);
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.rect(-10, -10, 20, 20);
     ctx.stroke();
+    ctx.fillStyle = powerupColor(power.kind);
+    ctx.font = "700 13px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(power.kind[0].toUpperCase(), 0, 1);
     ctx.restore();
   }
 }
@@ -546,6 +712,7 @@ function updateHud() {
   waveEl.textContent = state.wave.toString();
   livesEl.textContent = state.lives.toString();
   chargeEl.textContent = `${Math.floor(state.charge)}%`;
+  sectorEl.textContent = sectors[state.sector].name;
 }
 
 window.addEventListener("keydown", (event) => {
@@ -570,6 +737,6 @@ startButton.addEventListener("click", startGame);
 
 showOverlay(
   "Starline Breaker",
-  "Move with WASD or arrows. Fire with Space. Use Shift when charge is full.",
+  "Move with WASD or arrows. Fire with Space. Use Shift when charge is full. Collect cores to upgrade.",
   "Start Mission",
 );
