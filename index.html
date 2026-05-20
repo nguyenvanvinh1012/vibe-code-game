@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starline Breaker</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hud" aria-label="Game status">
+        <div>
+          <span class="label">Score</span>
+          <strong id="score">0</strong>
+        </div>
+        <div>
+          <span class="label">Wave</span>
+          <strong id="wave">1</strong>
+        </div>
+        <div>
+          <span class="label">Lives</span>
+          <strong id="lives">3</strong>
+        </div>
+        <div>
+          <span class="label">Charge</span>
+          <strong id="charge">0%</strong>
+        </div>
+      </section>
+
+      <section class="stage-wrap">
+        <canvas id="game" width="960" height="640" aria-label="Space Shooter Arcade game"></canvas>
+        <div id="overlay" class="overlay">
+          <h1>Starline Breaker</h1>
+          <p>Move with WASD or arrows. Fire with Space. Use Shift when charge is full.</p>
+          <button id="startButton" type="button">Start Mission</button>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Controls">
+        <span>Move: WASD / Arrows</span>
+        <span>Fire: Space</span>
+        <span>Nova: Shift</span>
+        <span>Pause: P</span>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
