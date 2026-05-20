@@ -26,7 +26,7 @@ const sectors = [
   { name: "Verdant", top: "#06120e", mid: "#0b251e", bottom: "#040907", star: "#c9ffe8" },
   { name: "Ion", top: "#10091a", mid: "#17204a", bottom: "#060711", star: "#eadbff" },
 ];
-const BASE_SECTOR_SCORE = 900;
+const BASE_SECTOR_SCORE = 2400;
 const playerBulletColors = ["#7df7ff", "#54e0a7", "#ffca5f", "#ff9e64", "#f85f73"];
 
 function difficultyScale() {
@@ -80,7 +80,7 @@ function createState() {
     powerups: [],
     spawnTimer: 0.4,
     waveKills: 0,
-    nextWaveKills: 10,
+    nextWaveKills: 16,
     bossSpawned: false,
     sectorBossActive: false,
     sectorBossReason: "",
@@ -160,7 +160,7 @@ function changeSector(reason) {
   state.sectorLevel += 1;
   state.sector = (state.sector + 1) % sectors.length;
   state.sectorStartScore = state.nextSectorScore;
-  state.nextSectorScore += BASE_SECTOR_SCORE + state.sectorLevel * 320;
+  state.nextSectorScore += BASE_SECTOR_SCORE + state.sectorLevel * 650;
   state.sectorFlash = 2.8;
   state.score += 250;
   state.charge = clamp(state.charge + 35, 0, 100);
@@ -481,7 +481,7 @@ function killEnemy(enemy, award = true) {
     state.bossSpawned = false;
     state.wave += 1;
     state.waveKills = 0;
-    state.nextWaveKills = 9 + state.wave * 2;
+    state.nextWaveKills = 15 + state.wave * 3;
     state.score += 200 * state.wave;
     if (enemy.sectorBoss) {
       changeSector("Sector clear");
@@ -577,14 +577,14 @@ function showNotice(text) {
 
 function maybeAdvanceWave() {
   if (state.waveKills >= state.nextWaveKills && !state.bossSpawned && !state.sectorBossActive) {
-    if (state.wave % 3 === 0 && !state.enemies.some((e) => e.boss)) {
+    if (state.wave % 4 === 0 && !state.enemies.some((e) => e.boss)) {
       spawnBoss();
       state.waveKills = 0;
       return;
     }
     state.wave += 1;
     state.waveKills = 0;
-    state.nextWaveKills = 9 + state.wave * 2;
+    state.nextWaveKills = 15 + state.wave * 3;
     state.score += 150 * state.wave;
     state.charge = clamp(state.charge + 20, 0, 100);
   }
