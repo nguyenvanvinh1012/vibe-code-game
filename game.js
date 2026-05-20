@@ -26,6 +26,12 @@ const sectors = [
   { name: "Verdant", top: "#06120e", mid: "#0b251e", bottom: "#040907", star: "#c9ffe8" },
   { name: "Ion", top: "#10091a", mid: "#17204a", bottom: "#060711", star: "#eadbff" },
 ];
+const BASE_SECTOR_SCORE = 900;
+const playerBulletColors = ["#7df7ff", "#54e0a7", "#ffca5f", "#ff9e64", "#f85f73"];
+
+function difficultyScale() {
+  return state.wave * 0.85 + state.sectorLevel * 1.15;
+}
 
 function createState() {
   return {
@@ -38,6 +44,9 @@ function createState() {
     charge: 0,
     elapsed: 0,
     sector: 0,
+    sectorLevel: 1,
+    sectorStartScore: 0,
+    nextSectorScore: BASE_SECTOR_SCORE,
     sectorFlash: 0,
     notice: "",
     noticeTimer: 0,
@@ -73,6 +82,8 @@ function createState() {
     waveKills: 0,
     nextWaveKills: 10,
     bossSpawned: false,
+    sectorBossActive: false,
+    sectorBossReason: "",
   };
 }
 
@@ -132,16 +143,45 @@ function updateSector(dt) {
   if (!Number.isFinite(state.elapsed)) {
     state.elapsed = 0;
   }
-  const nextSector = Math.floor(state.elapsed / 60) % sectors.length;
-  if (nextSector !== state.sector) {
-    state.sector = nextSector;
-    state.sectorFlash = 2.5;
-    state.score += 500;
-    state.charge = clamp(state.charge + 35, 0, 100);
-    showNotice(`${sectors[state.sector].name} sector`);
+  if (state.score >= state.nextSectorScore && !state.bossSpawned && !state.sectorBossActive) {
+    spawnSectorBoss("Gate boss");
   }
+
+  const timedSectorLevel = Math.floor(state.elapsed / 75) + 1;
+  if (timedSectorLevel > state.sectorLevel && !state.bossSpawned && !state.sectorBossActive) {
+    spawnSectorBoss("Warp guardian");
+  }
+
   state.sectorFlash = Math.max(0, state.sectorFlash - dt);
   state.noticeTimer = Math.max(0, state.noticeTimer - dt);
+}
+
+function changeSector(reason) {
+  state.sectorLevel += 1;
+  state.sector = (state.sector + 1) % sectors.length;
+  state.sectorStartScore = state.nextSectorScore;
+  state.nextSectorScore += BASE_SECTOR_SCORE + state.sectorLevel * 320;
+  state.sectorFlash = 2.8;
+  state.score += 250;
+  state.charge = clamp(state.charge + 35, 0, 100);
+  state.enemyBullets = [];
+  state.enemies = [];
+  state.spawnTimer = 1.1;
+  state.bossSpawned = false;
+  state.sectorBossActive = false;
+  state.sectorBossReason = "";
+  state.wave = Math.max(state.wave, state.sectorLevel);
+  showNotice(`${reason}: ${sectors[state.sector].name}`);
+}
+
+function spawnSectorBoss(reason) {
+  state.sectorBossActive = true;
+  state.sectorBossReason = reason;
+  state.enemyBullets = [];
+  state.enemies = [];
+  state.spawnTimer = 2.2;
+  showNotice(`${reason} incoming`);
+  spawnBoss(true);
 }
 
 function updateStars(dt) {
@@ -184,31 +224,56 @@ function firePlayerBullet() {
   const p = state.player;
   const spread = p.heat > 0.55 ? 17 : 10;
   const damage = state.upgrades.power;
+  const color = playerBulletColors[Math.min(damage - 1, playerBulletColors.length - 1)];
   const shots = [
-    { x: -spread, vx: -45, vy: -760 },
-    { x: spread, vx: 45, vy: -760 },
+    { x: -spread, y: -18, vx: -45, vy: -760, r: 4, damage, color, kind: "bolt" },
+    { x: spread, y: -18, vx: 45, vy: -760, r: 4, damage, color, kind: "bolt" },
   ];
 
-  if (state.upgrades.shot >= 2) shots.push({ x: 0, vx: 0, vy: -790 });
+  if (state.upgrades.shot >= 2) {
+    shots.push({ x: 0, y: -24, vx: 0, vy: -820, r: 5, damage: damage + 0.5, color, kind: "lance" });
+  }
   if (state.upgrades.shot >= 3) {
-    shots.push({ x: -24, vx: -155, vy: -735 }, { x: 24, vx: 155, vy: -735 });
+    shots.push(
+      { x: -26, y: -12, vx: -180, vy: -720, r: 4, damage, color: "#c78bff", kind: "wing" },
+      { x: 26, y: -12, vx: 180, vy: -720, r: 4, damage, color: "#c78bff", kind: "wing" },
+    );
   }
   if (state.upgrades.shot >= 4) {
-    shots.push({ x: -8, vx: -78, vy: -820 }, { x: 8, vx: 78, vy: -820 });
+    shots.push(
+      { x: -40, y: -4, vx: -72, vy: -800, r: 3.5, damage, color: "#9dd8ff", kind: "drone" },
+      { x: 40, y: -4, vx: 72, vy: -800, r: 3.5, damage, color: "#9dd8ff", kind: "drone" },
+    );
+  }
+  if (state.upgrades.shot >= 5) {
+    shots.push(
+      { x: -6, y: -30, vx: -28, vy: -900, r: 7, damage: damage + 1, color: "#ffffff", kind: "pulse" },
+      { x: 6, y: -30, vx: 28, vy: -900, r: 7, damage: damage + 1, color: "#ffffff", kind: "pulse" },
+    );
+  }
+  if (state.upgrades.shot >= 6) {
+    shots.push(
+      { x: -58, y: 2, vx: -245, vy: -690, r: 4, damage, color: "#ffca5f", kind: "flare" },
+      { x: 58, y: 2, vx: 245, vy: -690, r: 4, damage, color: "#ffca5f", kind: "flare" },
+    );
   }
 
   for (const shot of shots) {
     state.bullets.push({
       x: p.x + shot.x,
-      y: p.y - 18,
+      y: p.y + shot.y,
       vx: shot.vx,
       vy: shot.vy,
-      r: 4,
-      damage,
+      r: shot.r + (damage - 1) * 0.8,
+      damage: shot.damage,
+      color: shot.color,
+      kind: shot.kind,
+      life: 0,
     });
   }
   p.fireCooldown = Math.max(0.055, 0.14 - (state.upgrades.rapid - 1) * 0.022);
   p.heat = clamp(p.heat + 0.08, 0, 1);
+  burst(p.x, p.y - 20, color, 2 + state.upgrades.rapid);
 }
 
 function triggerNova() {
@@ -227,8 +292,15 @@ function triggerNova() {
 
 function updateBullets(dt) {
   for (const b of state.bullets) {
+    b.life += dt;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
+    if (b.kind === "wing") {
+      b.x += Math.sin(b.life * 18) * 38 * dt;
+    }
+    if (b.kind === "pulse") {
+      b.r = 7 + Math.sin(b.life * 24) * 1.6;
+    }
   }
   state.bullets = state.bullets.filter((b) => b.y > -30 && b.x > -40 && b.x < W + 40);
 }
@@ -238,41 +310,52 @@ function spawnEnemies(dt) {
   if (state.spawnTimer > 0 || state.bossSpawned) return;
 
   const wave = state.wave;
-  const isHeavy = Math.random() < Math.min(0.12 + wave * 0.025, 0.34);
+  const difficulty = difficultyScale();
+  const isHeavy = Math.random() < Math.min(0.14 + difficulty * 0.018, 0.42);
+  const isHunter = !isHeavy && state.sectorLevel >= 2 && Math.random() < Math.min(0.08 + difficulty * 0.01, 0.24);
   const enemy = {
     x: rand(44, W - 44),
     y: -40,
-    r: isHeavy ? 24 : 17,
-    hp: isHeavy ? 4 + Math.floor(wave / 2) : 2 + Math.floor(wave / 3),
+    r: isHeavy ? 24 : isHunter ? 15 : 17,
+    hp: isHeavy
+      ? 4 + Math.floor(difficulty / 2)
+      : 2 + Math.floor(difficulty / 4) + (isHunter ? 1 : 0),
     maxHp: 0,
-    speed: isHeavy ? rand(55, 95) : rand(95, 165),
-    sway: rand(0.8, 2.4),
+    speed: isHeavy
+      ? rand(65, 110) + state.sectorLevel * 5
+      : rand(110, 185) + state.sectorLevel * 8 + (isHunter ? 38 : 0),
+    sway: rand(0.9, 2.7) + state.sectorLevel * 0.08,
     phase: rand(0, Math.PI * 2),
-    fireTimer: rand(1.0, 2.4),
-    points: isHeavy ? 80 : 40,
+    fireTimer: rand(0.85, 2.1) - Math.min(difficulty * 0.025, 0.45),
+    points: isHeavy ? 90 : isHunter ? 65 : 45,
     heavy: isHeavy,
+    hunter: isHunter,
     boss: false,
   };
   enemy.maxHp = enemy.hp;
   state.enemies.push(enemy);
-  state.spawnTimer = Math.max(0.18, 0.85 - wave * 0.045);
+  state.spawnTimer = Math.max(0.13, 0.82 - difficulty * 0.035);
 }
 
-function spawnBoss() {
+function spawnBoss(sectorBoss = false) {
   state.bossSpawned = true;
+  const bossHp = sectorBoss
+    ? 82 + state.wave * 11 + state.sectorLevel * 18
+    : 38 + state.wave * 7 + state.sectorLevel * 8;
   state.enemies.push({
     x: W / 2,
     y: -82,
-    r: 52,
-    hp: 34 + state.wave * 6,
-    maxHp: 34 + state.wave * 6,
-    speed: 48,
-    sway: 1.2,
+    r: sectorBoss ? 64 : 52,
+    hp: bossHp,
+    maxHp: bossHp,
+    speed: sectorBoss ? 44 + state.sectorLevel * 2 : 52 + state.sectorLevel * 3,
+    sway: sectorBoss ? 1.55 : 1.2,
     phase: 0,
-    fireTimer: 0.9,
-    points: 850,
+    fireTimer: sectorBoss ? 0.65 : 0.9,
+    points: sectorBoss ? 1250 + state.sectorLevel * 250 : 850,
     heavy: true,
     boss: true,
+    sectorBoss,
   });
 }
 
@@ -286,7 +369,10 @@ function updateEnemies(dt) {
 
     if (enemy.fireTimer <= 0 && enemy.y > 20) {
       fireEnemy(enemy);
-      enemy.fireTimer = enemy.boss ? 0.55 : rand(1.2, 2.8) - state.wave * 0.035;
+      const difficulty = difficultyScale();
+      enemy.fireTimer = enemy.boss
+        ? Math.max(enemy.sectorBoss ? 0.26 : 0.34, (enemy.sectorBoss ? 0.46 : 0.58) - state.sectorLevel * 0.025)
+        : Math.max(0.42, rand(1.0, 2.35) - difficulty * 0.04);
     }
   }
 
@@ -295,8 +381,11 @@ function updateEnemies(dt) {
 
 function fireEnemy(enemy) {
   const angle = Math.atan2(state.player.y - enemy.y, state.player.x - enemy.x);
-  const speed = enemy.boss ? 250 : 205;
-  const shots = enemy.boss ? [-0.34, 0, 0.34] : [0];
+  const speed = enemy.boss ? 270 + state.sectorLevel * 12 : 215 + state.sectorLevel * 11;
+  let shots = enemy.boss ? [-0.42, -0.14, 0.14, 0.42] : [0];
+  if (enemy.sectorBoss) shots = [-0.58, -0.32, -0.1, 0.1, 0.32, 0.58];
+  if (enemy.heavy && state.sectorLevel >= 2) shots = [-0.18, 0.18];
+  if (enemy.hunter && state.sectorLevel >= 3) shots = [-0.28, 0, 0.28];
   for (const offset of shots) {
     state.enemyBullets.push({
       x: enemy.x,
@@ -383,7 +472,8 @@ function killEnemy(enemy, award = true) {
     state.score += enemy.points;
     state.waveKills += enemy.boss ? 4 : 1;
     state.charge = clamp(state.charge + (enemy.boss ? 34 : 10), 0, 100);
-    if (Math.random() < (enemy.boss ? 1 : 0.28)) {
+    const dropChance = Math.max(0.1, 0.18 - state.sectorLevel * 0.015);
+    if (Math.random() < (enemy.boss ? 1 : dropChance)) {
       dropPowerup(enemy.x, enemy.y, enemy.boss);
     }
   }
@@ -393,6 +483,9 @@ function killEnemy(enemy, award = true) {
     state.waveKills = 0;
     state.nextWaveKills = 9 + state.wave * 2;
     state.score += 200 * state.wave;
+    if (enemy.sectorBoss) {
+      changeSector("Sector clear");
+    }
   }
 }
 
@@ -428,15 +521,15 @@ function applyPowerup(kind) {
     showNotice("Nova core charged");
   }
   if (kind === "shot") {
-    upgrades.shot = Math.min(4, upgrades.shot + 1);
-    showNotice(`V-shot level ${upgrades.shot}`);
+    upgrades.shot = Math.min(6, upgrades.shot + 1);
+    showNotice(`Weapon pattern ${upgrades.shot}`);
   }
   if (kind === "rapid") {
-    upgrades.rapid = Math.min(4, upgrades.rapid + 1);
+    upgrades.rapid = Math.min(5, upgrades.rapid + 1);
     showNotice(`Rapid level ${upgrades.rapid}`);
   }
   if (kind === "power") {
-    upgrades.power = Math.min(3, upgrades.power + 1);
+    upgrades.power = Math.min(5, upgrades.power + 1);
     showNotice(`Damage level ${upgrades.power}`);
   }
   if (kind === "speed") {
@@ -483,7 +576,7 @@ function showNotice(text) {
 }
 
 function maybeAdvanceWave() {
-  if (state.waveKills >= state.nextWaveKills && !state.bossSpawned) {
+  if (state.waveKills >= state.nextWaveKills && !state.bossSpawned && !state.sectorBossActive) {
     if (state.wave % 3 === 0 && !state.enemies.some((e) => e.boss)) {
       spawnBoss();
       state.waveKills = 0;
@@ -521,6 +614,7 @@ function draw() {
   drawEnemies();
   drawPlayer();
   drawParticles();
+  drawSectorProgress();
 
   if (state.paused && !state.gameOver) {
     drawCenterText("Paused", "Press P to resume");
@@ -613,6 +707,11 @@ function drawPlayer() {
   ctx.closePath();
   ctx.fill();
 
+  if (state.upgrades.shot >= 4) {
+    drawDrone(-42, 8);
+    drawDrone(42, 8);
+  }
+
   if (state.upgrades.shield > 0) {
     ctx.strokeStyle = "#7df7ff";
     ctx.lineWidth = 3;
@@ -625,10 +724,25 @@ function drawPlayer() {
   ctx.restore();
 }
 
+function drawDrone(x, y) {
+  ctx.save();
+  ctx.translate(x, y + Math.sin(performance.now() / 180 + x) * 3);
+  ctx.fillStyle = "#9dd8ff";
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.lineTo(10, 6);
+  ctx.lineTo(0, 12);
+  ctx.lineTo(-10, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(-3, -2, 6, 6);
+  ctx.restore();
+}
+
 function drawBullets() {
   for (const b of state.bullets) {
-    ctx.fillStyle = "#7df7ff";
-    drawRoundedRect(b.x - 3, b.y - 13, 6, 20, 4);
+    drawPlayerBullet(b);
   }
 
   ctx.fillStyle = "#ff667d";
@@ -637,6 +751,41 @@ function drawBullets() {
     ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawPlayerBullet(b) {
+  ctx.save();
+  ctx.globalAlpha = 0.36;
+  ctx.fillStyle = b.color || "#7df7ff";
+  drawRoundedRect(b.x - b.r * 0.75, b.y + 4, b.r * 1.5, b.r * 7, b.r);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = b.color || "#7df7ff";
+
+  if (b.kind === "pulse") {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r + 4, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.22;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (b.kind === "lance") {
+    drawRoundedRect(b.x - b.r * 0.55, b.y - 22, b.r * 1.1, 34, b.r);
+    ctx.fillStyle = "#ffffff";
+    drawRoundedRect(b.x - 1.5, b.y - 18, 3, 25, 2);
+  } else if (b.kind === "wing" || b.kind === "flare") {
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y - 12);
+    ctx.lineTo(b.x + b.r * 1.5, b.y + 10);
+    ctx.lineTo(b.x, b.y + 4);
+    ctx.lineTo(b.x - b.r * 1.5, b.y + 10);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    drawRoundedRect(b.x - b.r * 0.7, b.y - 13, b.r * 1.4, 22, b.r);
+  }
+  ctx.restore();
 }
 
 function drawRoundedRect(x, y, width, height, radius) {
@@ -658,7 +807,15 @@ function drawEnemies() {
   for (const enemy of state.enemies) {
     ctx.save();
     ctx.translate(enemy.x, enemy.y);
-    ctx.fillStyle = enemy.boss ? "#f85f73" : enemy.heavy ? "#ff9e64" : "#6f8dff";
+    ctx.fillStyle = enemy.sectorBoss
+      ? "#ffffff"
+      : enemy.boss
+        ? "#f85f73"
+        : enemy.heavy
+          ? "#ff9e64"
+          : enemy.hunter
+            ? "#c78bff"
+            : "#6f8dff";
     ctx.beginPath();
     ctx.moveTo(0, enemy.r);
     ctx.lineTo(enemy.r * 0.95, -enemy.r * 0.55);
@@ -675,7 +832,14 @@ function drawEnemies() {
     ctx.restore();
 
     if (enemy.boss) {
-      drawBar(enemy.x - 65, enemy.y - 75, 130, 8, enemy.hp / enemy.maxHp, "#ffca5f");
+      drawBar(
+        enemy.x - (enemy.sectorBoss ? 86 : 65),
+        enemy.y - (enemy.sectorBoss ? 92 : 75),
+        enemy.sectorBoss ? 172 : 130,
+        8,
+        enemy.hp / enemy.maxHp,
+        enemy.sectorBoss ? "#ffffff" : "#ffca5f",
+      );
     }
   }
 }
@@ -710,6 +874,25 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 
+function drawSectorProgress() {
+  const needed = Math.max(1, state.nextSectorScore - state.sectorStartScore);
+  const progress = clamp((state.score - state.sectorStartScore) / needed, 0, 1);
+  const x = 28;
+  const y = 24;
+  const width = 220;
+  const height = 8;
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = (sectors[state.sector] || sectors[0]).star;
+  ctx.fillRect(x, y, width * progress, height);
+  ctx.fillStyle = "rgba(238, 244, 255, 0.86)";
+  ctx.font = "700 13px Inter, sans-serif";
+  ctx.textAlign = "left";
+  const label = state.sectorBossActive ? "Defeat gate boss" : `Gate boss: ${state.nextSectorScore}`;
+  ctx.fillText(label, x, y + 24);
+}
+
 function drawBar(x, y, width, height, value, color) {
   ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
   ctx.fillRect(x, y, width, height);
@@ -735,7 +918,7 @@ function updateHud() {
   waveEl.textContent = state.wave.toString();
   livesEl.textContent = state.lives.toString();
   chargeEl.textContent = `${Math.floor(state.charge)}%`;
-  sectorEl.textContent = (sectors[state.sector] || sectors[0]).name;
+  sectorEl.textContent = `${(sectors[state.sector] || sectors[0]).name} ${state.sectorLevel}`;
 }
 
 window.addEventListener("keydown", (event) => {
