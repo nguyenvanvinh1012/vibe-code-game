@@ -92,17 +92,24 @@ function showOverlay(title, body, buttonText) {
 }
 
 function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.033);
-  lastTime = now;
+  try {
+    const frameTime = Number.isFinite(now) ? now : performance.now();
+    const dt = Math.min(Math.max((frameTime - lastTime) / 1000, 0), 0.033);
+    lastTime = frameTime;
 
-  if (state.running && !state.paused && !state.gameOver) {
-    update(dt);
-  }
-  draw();
-  updateHud();
+    if (state.running && !state.paused && !state.gameOver) {
+      update(dt);
+    }
+    draw();
+    updateHud();
 
-  if (state.running) {
-    animationId = requestAnimationFrame(loop);
+    if (state.running) {
+      animationId = requestAnimationFrame(loop);
+    }
+  } catch (error) {
+    console.error(error);
+    state.running = false;
+    showOverlay("Render Error", error.message || "The game stopped while rendering.", "Restart Mission");
   }
 }
 
@@ -122,6 +129,9 @@ function update(dt) {
 }
 
 function updateSector(dt) {
+  if (!Number.isFinite(state.elapsed)) {
+    state.elapsed = 0;
+  }
   const nextSector = Math.floor(state.elapsed / 60) % sectors.length;
   if (nextSector !== state.sector) {
     state.sector = nextSector;
@@ -526,7 +536,7 @@ function draw() {
 }
 
 function drawBackground() {
-  const sector = sectors[state.sector];
+  const sector = sectors[state.sector] || sectors[0];
   const gradient = ctx.createLinearGradient(0, 0, 0, H);
   gradient.addColorStop(0, sector.top);
   gradient.addColorStop(0.5, sector.mid);
@@ -618,9 +628,7 @@ function drawPlayer() {
 function drawBullets() {
   for (const b of state.bullets) {
     ctx.fillStyle = "#7df7ff";
-    ctx.beginPath();
-    ctx.roundRect(b.x - 3, b.y - 13, 6, 20, 4);
-    ctx.fill();
+    drawRoundedRect(b.x - 3, b.y - 13, 6, 20, 4);
   }
 
   ctx.fillStyle = "#ff667d";
@@ -629,6 +637,21 @@ function drawBullets() {
     ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawRoundedRect(x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawEnemies() {
@@ -712,7 +735,7 @@ function updateHud() {
   waveEl.textContent = state.wave.toString();
   livesEl.textContent = state.lives.toString();
   chargeEl.textContent = `${Math.floor(state.charge)}%`;
-  sectorEl.textContent = sectors[state.sector].name;
+  sectorEl.textContent = (sectors[state.sector] || sectors[0]).name;
 }
 
 window.addEventListener("keydown", (event) => {
@@ -740,3 +763,7 @@ showOverlay(
   "Move with WASD or arrows. Fire with Space. Use Shift when charge is full. Collect cores to upgrade.",
   "Start Mission",
 );
+
+if (new URLSearchParams(window.location.search).has("autostart")) {
+  startGame();
+}
