@@ -28,9 +28,20 @@ const sectors = [
 ];
 const BASE_SECTOR_SCORE = 2400;
 const playerBulletColors = ["#7df7ff", "#54e0a7", "#ffca5f", "#ff9e64", "#f85f73"];
+const shipSkins = [
+  { body: "#54e0a7", cockpit: "#efffff", engine: "#ffca5f", wing: 18, nose: 26, name: "Scout" },
+  { body: "#7df7ff", cockpit: "#ffffff", engine: "#54e0a7", wing: 23, nose: 30, name: "Comet" },
+  { body: "#c78bff", cockpit: "#fff5ff", engine: "#ffca5f", wing: 28, nose: 34, name: "Raptor" },
+  { body: "#ff9e64", cockpit: "#ffffff", engine: "#7df7ff", wing: 32, nose: 38, name: "Phoenix" },
+  { body: "#ffffff", cockpit: "#0b1020", engine: "#f85f73", wing: 36, nose: 42, name: "Nova X" },
+];
 
 function difficultyScale() {
   return state.wave * 0.85 + state.sectorLevel * 1.15;
+}
+
+function nextGateScoreIncrease() {
+  return BASE_SECTOR_SCORE + state.sectorLevel * state.sectorLevel * 900;
 }
 
 function createState() {
@@ -56,6 +67,7 @@ function createState() {
       power: 1,
       speed: 1,
       shield: 0,
+      ship: 0,
     },
     stars: Array.from({ length: 140 }, () => ({
       x: rand(0, W),
@@ -160,7 +172,7 @@ function changeSector(reason) {
   state.sectorLevel += 1;
   state.sector = (state.sector + 1) % sectors.length;
   state.sectorStartScore = state.nextSectorScore;
-  state.nextSectorScore += BASE_SECTOR_SCORE + state.sectorLevel * 650;
+  state.nextSectorScore += nextGateScoreIncrease();
   state.sectorFlash = 2.8;
   state.score += 250;
   state.charge = clamp(state.charge + 35, 0, 100);
@@ -540,13 +552,17 @@ function applyPowerup(kind) {
     upgrades.shield = Math.min(3, upgrades.shield + 1);
     showNotice(`Shield x${upgrades.shield}`);
   }
+  if (kind === "ship") {
+    upgrades.ship = Math.min(shipSkins.length - 1, upgrades.ship + 1);
+    showNotice(`Ship upgraded: ${shipSkins[upgrades.ship].name}`);
+  }
   burst(state.player.x, state.player.y, powerupColor(kind), 32);
 }
 
 function dropPowerup(x, y, bossDrop) {
   const pool = bossDrop
-    ? ["shot", "rapid", "power", "shield", "life", "charge"]
-    : ["shot", "rapid", "power", "speed", "shield", "charge", "life"];
+    ? ["shot", "rapid", "power", "shield", "ship", "life", "charge"]
+    : ["shot", "rapid", "power", "speed", "shield", "ship", "charge", "life"];
   const kind = pool[Math.floor(rand(0, pool.length))];
   state.powerups.push({
     x,
@@ -567,6 +583,20 @@ function powerupColor(kind) {
     power: "#ff9e64",
     speed: "#8cff6f",
     shield: "#9dd8ff",
+    ship: "#ffffff",
+  }[kind];
+}
+
+function powerupLabel(kind) {
+  return {
+    life: "+",
+    charge: "N",
+    shot: "W",
+    rapid: "R",
+    power: "P",
+    speed: "E",
+    shield: "S",
+    ship: "M",
   }[kind];
 }
 
@@ -681,31 +711,81 @@ function drawPlayer() {
   const p = state.player;
   const blink = p.invulnerable > 0 && Math.floor(p.invulnerable * 12) % 2 === 0;
   if (blink) return;
+  const skin = shipSkins[state.upgrades.ship] || shipSkins[0];
+  const skinLevel = state.upgrades.ship;
 
   ctx.save();
   ctx.translate(p.x, p.y);
-  ctx.fillStyle = "#54e0a7";
+  ctx.fillStyle = skin.body;
   ctx.beginPath();
-  ctx.moveTo(0, -26);
-  ctx.lineTo(18, 22);
+  ctx.moveTo(0, -skin.nose);
+  ctx.lineTo(skin.wing, 22);
   ctx.lineTo(0, 12);
-  ctx.lineTo(-18, 22);
+  ctx.lineTo(-skin.wing, 22);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#efffff";
+
+  if (skinLevel >= 1) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+    ctx.beginPath();
+    ctx.moveTo(-skin.wing - 7, 18);
+    ctx.lineTo(-skin.wing * 0.5, 4);
+    ctx.lineTo(-skin.wing * 0.45, 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(skin.wing + 7, 18);
+    ctx.lineTo(skin.wing * 0.5, 4);
+    ctx.lineTo(skin.wing * 0.45, 26);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  if (skinLevel >= 2) {
+    ctx.strokeStyle = skin.engine;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-skin.wing * 0.7, -5);
+    ctx.lineTo(-skin.wing * 1.15, 14);
+    ctx.moveTo(skin.wing * 0.7, -5);
+    ctx.lineTo(skin.wing * 1.15, 14);
+    ctx.stroke();
+  }
+
+  if (skinLevel >= 3) {
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = skin.body;
+    ctx.beginPath();
+    ctx.arc(0, 0, 38, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.fillStyle = skin.cockpit;
   ctx.beginPath();
-  ctx.moveTo(0, -12);
-  ctx.lineTo(8, 10);
-  ctx.lineTo(-8, 10);
+  ctx.moveTo(0, -skin.nose * 0.48);
+  ctx.lineTo(8 + skinLevel, 10);
+  ctx.lineTo(-8 - skinLevel, 10);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#ffca5f";
+
+  ctx.fillStyle = skin.engine;
   ctx.beginPath();
-  ctx.moveTo(-8, 20);
-  ctx.lineTo(0, 34 + Math.sin(performance.now() / 70) * 6);
-  ctx.lineTo(8, 20);
+  ctx.moveTo(-8 - skinLevel, 20);
+  ctx.lineTo(0, 34 + skinLevel * 4 + Math.sin(performance.now() / 70) * (6 + skinLevel));
+  ctx.lineTo(8 + skinLevel, 20);
   ctx.closePath();
   ctx.fill();
+
+  if (skinLevel >= 4) {
+    ctx.strokeStyle = skin.engine;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.65;
+    ctx.beginPath();
+    ctx.arc(0, 0, 46 + Math.sin(performance.now() / 130) * 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
 
   if (state.upgrades.shot >= 4) {
     drawDrone(-42, 8);
@@ -858,7 +938,7 @@ function drawPowerups() {
     ctx.font = "700 13px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(power.kind[0].toUpperCase(), 0, 1);
+    ctx.fillText(powerupLabel(power.kind), 0, 1);
     ctx.restore();
   }
 }
